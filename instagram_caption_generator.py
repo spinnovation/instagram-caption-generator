@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Instagram 감상평 생성기 (수정버전)
+# Instagram 감상평 생성기 (완전버전)
 # 필요 패키지:
 # pip install streamlit openai pillow opencv-python numpy
 
@@ -88,67 +88,10 @@ def detect_faces_opencv(image: Image.Image) -> list:
         st.warning(f"얼굴 감지 중 오류가 발생했습니다: {e}")
         return []
 
-def crop_image_face_center(image: Image.Image) -> Image.Image:
-    """얼굴 위치를 중심으로 4:5 비율로 이미지를 크롭합니다."""
-    try:
-        width, height = image.size
-        faces = detect_faces_opencv(image)
-        
-        if faces:
-            # 첫 번째 얼굴을 중심으로 설정
-            x, y, w, h = faces[0]
-            center_x = x + w // 2
-            center_y = y + h // 2
-        else:
-            # 얼굴이 감지되지 않으면 이미지 중앙을 사용
-            center_x, center_y = width // 2, height // 2
-        
-        # 4:5 비율로 크롭 영역 계산
-        target_ratio = 4/5
-        
-        if width/height > target_ratio:
-            # 가로가 더 긴 경우
-            crop_h = height
-            crop_w = int(crop_h * target_ratio)
-        else:
-            # 세로가 더 긴 경우
-            crop_w = width
-            crop_h = int(crop_w / target_ratio)
-        
-        # 크롭 영역이 이미지 범위를 벗어나지 않도록 조정
-        left_crop = max(0, min(center_x - crop_w//2, width - crop_w))
-        top_crop = max(0, min(center_y - crop_h//2, height - crop_h))
-        right_crop = left_crop + crop_w
-        bottom_crop = top_crop + crop_h
-        
-        return image.crop((left_crop, top_crop, right_crop, bottom_crop))
-    
-    except Exception as e:
-        st.error(f"이미지 크롭 중 오류가 발생했습니다: {e}")
-        return image
-
-def image_to_base64(image: Image.Image) -> str:
-    """PIL Image를 base64 문자열로 변환합니다."""
-    buffer = io.BytesIO()
-    image.save(buffer, format="JPEG", quality=85)
-    img_str = base64.b64encode(buffer.getvalue()).decode()
-    return img_str
-
-def format_cost_info(cost_info: dict) -> str:
-    """비용 정보를 보기 좋게 포맷팅합니다."""
-    return f"""
-**💰 예상 API 비용**
-- 이미지 크기: {cost_info['image_size']}
-- 처리 모드: {cost_info['detail_mode']} ({cost_info['num_tiles']}개 타일)
-- 이미지 토큰: {cost_info['image_tokens']:,}개
-- 총 입력 토큰: {cost_info['total_input_tokens']:,}개  
-- 총 출력 토큰: {cost_info['total_output_tokens']:,}개
-- **예상 비용: ${cost_info['total_cost_usd']:.6f} (약 {cost_info['total_cost_krw']:.2f}원)**
-    """
+def calculate_image_cost(image: Image.Image) -> dict:
     """이미지 처리 비용을 계산합니다."""
     # OpenAI Vision API 가격 (2024년 기준)
     # GPT-4o-mini: $0.00015 per 1K input tokens, $0.0006 per 1K output tokens
-    # 이미지: 저해상도 $0.001275, 고해상도는 타일 개수에 따라 계산
     
     width, height = image.size
     
@@ -211,15 +154,70 @@ def format_cost_info(cost_info: dict) -> str:
         "total_cost_krw": total_cost_krw
     }
 
+def crop_image_face_center(image: Image.Image) -> Image.Image:
+    """얼굴 위치를 중심으로 4:5 비율로 이미지를 크롭합니다."""
+    try:
+        width, height = image.size
+        faces = detect_faces_opencv(image)
+        
+        if faces:
+            # 첫 번째 얼굴을 중심으로 설정
+            x, y, w, h = faces[0]
+            center_x = x + w // 2
+            center_y = y + h // 2
+        else:
+            # 얼굴이 감지되지 않으면 이미지 중앙을 사용
+            center_x, center_y = width // 2, height // 2
+        
+        # 4:5 비율로 크롭 영역 계산
+        target_ratio = 4/5
+        
+        if width/height > target_ratio:
+            # 가로가 더 긴 경우
+            crop_h = height
+            crop_w = int(crop_h * target_ratio)
+        else:
+            # 세로가 더 긴 경우
+            crop_w = width
+            crop_h = int(crop_w / target_ratio)
+        
+        # 크롭 영역이 이미지 범위를 벗어나지 않도록 조정
+        left_crop = max(0, min(center_x - crop_w//2, width - crop_w))
+        top_crop = max(0, min(center_y - crop_h//2, height - crop_h))
+        right_crop = left_crop + crop_w
+        bottom_crop = top_crop + crop_h
+        
+        return image.crop((left_crop, top_crop, right_crop, bottom_crop))
+    
+    except Exception as e:
+        st.error(f"이미지 크롭 중 오류가 발생했습니다: {e}")
+        return image
+
+def image_to_base64(image: Image.Image) -> str:
+    """PIL Image를 base64 문자열로 변환합니다."""
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=85)
+    img_str = base64.b64encode(buffer.getvalue()).decode()
+    return img_str
+
+def format_cost_info(cost_info: dict) -> str:
+    """비용 정보를 보기 좋게 포맷팅합니다."""
+    return f"""
+**💰 예상 API 비용**
+- 이미지 크기: {cost_info['image_size']}
+- 처리 모드: {cost_info['detail_mode']} ({cost_info['num_tiles']}개 타일)
+- 이미지 토큰: {cost_info['image_tokens']:,}개
+- 총 입력 토큰: {cost_info['total_input_tokens']:,}개  
+- 총 출력 토큰: {cost_info['total_output_tokens']:,}개
+- **예상 비용: ${cost_info['total_cost_usd']:.6f} (약 {cost_info['total_cost_krw']:.2f}원)**
+    """
+
 def generate_caption_and_hashtags(image: Image.Image, style: str, api_key: str, custom_prompt: str = None) -> Tuple[str, str, dict]:
     """이미지에 대한 감상평과 해시태그를 생성하고 실제 사용된 토큰 정보를 반환합니다."""
     try:
         client = get_openai_client(api_key)
         if not client:
             return "API 키가 유효하지 않습니다.", "", {}
-        
-        # 사전 비용 계산
-        cost_info = calculate_image_cost(image)
         
         # 스타일별 프롬프트 설정
         style_prompts = {
@@ -266,7 +264,7 @@ def generate_caption_and_hashtags(image: Image.Image, style: str, api_key: str, 
                             "type": "image_url",
                             "image_url": {
                                 "url": f"data:image/jpeg;base64,{img_base64}",
-                                "detail": "auto"  # OpenAI가 자동으로 최적 해상도 선택
+                                "detail": "auto"
                             }
                         }
                     ]
@@ -454,7 +452,6 @@ def main():
                 st.metric("예상 비용 (KRW)", f"{cost_info['total_cost_krw']:.2f}원")
             with col5:
                 st.metric("토큰 수", f"{cost_info['total_input_tokens']:,}")
-
             
             # 감상평 생성 버튼
             if st.button("🎨 감상평 생성하기", type="primary", use_container_width=True):
@@ -540,13 +537,36 @@ def main():
         st.markdown("""
         1. **API 키 입력**: OpenAI API 키를 입력하세요. (한 번만 입력하면 됩니다)
         2. **사진 업로드**: PNG, JPG, JPEG 형식의 이미지를 업로드하세요.
-        3. **스타일 선택**: 원하는 톤앤매너를 선택하거나 직접 프롬프트를 작성하세요.
-        4. **감상평 생성**: 버튼을 클릭하면 AI가 자동으로 감상평과 해시태그를 생성합니다.
-        5. **복사 및 사용**: 생성된 텍스트를 복사해서 Instagram에 사용하세요.
+        3. **비용 확인**: 업로드 후 예상 API 비용을 확인할 수 있습니다.
+        4. **스타일 선택**: 원하는 톤앤매너를 선택하거나 직접 프롬프트를 작성하세요.
+        5. **감상평 생성**: 버튼을 클릭하면 AI가 자동으로 감상평과 해시태그를 생성합니다.
+        6. **복사 및 사용**: 생성된 텍스트를 복사해서 Instagram에 사용하세요.
         
-        **팁**: 얼굴이 포함된 사진의 경우 자동으로 얼굴을 중심으로 크롭됩니다.
+        **팁**: 
+        - 얼굴이 포함된 사진의 경우 자동으로 얼굴을 중심으로 크롭됩니다.
+        - 이미지 크기가 클수록 비용이 높아집니다. 512x512 이하로 줄이면 비용을 절약할 수 있습니다.
+        - 실제 비용은 생성되는 텍스트 길이에 따라 예상 비용과 약간 다를 수 있습니다.
         
         **보안**: API 키는 브라우저에서만 사용되며 서버에 저장되지 않습니다.
+        """)
+    
+    # 비용 정보 섹션
+    with st.expander("💰 API 비용 정보"):
+        st.markdown("""
+        ### OpenAI GPT-4o-mini 가격 (2024년 기준)
+        - **입력 토큰**: $0.00015 per 1,000 tokens
+        - **출력 토큰**: $0.0006 per 1,000 tokens
+        - **이미지 처리**: 해상도에 따라 85~수백 토큰
+        
+        ### 이미지 토큰 계산 방식
+        - **저해상도 모드**: 85 토큰 (이미지가 512px 이하)
+        - **고해상도 모드**: 85 + (타일 수 × 170) 토큰
+        
+        ### 예상 비용 예시
+        - **일반적인 사진 1장**: 약 $0.0001~0.0005 (0.13~0.65원)
+        - **고해상도 사진 1장**: 약 $0.0005~0.002 (0.65~2.6원)
+        
+        실제 사용해보시면 생각보다 저렴하다는 것을 느끼실 수 있을 거예요! 🎉
         """)
     
     # 푸터
@@ -558,5 +578,6 @@ def main():
         "</div>", 
         unsafe_allow_html=True
     )
+
 if __name__ == "__main__":
     main()
